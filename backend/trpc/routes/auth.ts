@@ -1,4 +1,4 @@
-import * as z from "zod";
+import { z } from "zod";
 import { createTRPCRouter, publicProcedure, protectedProcedure } from "../create-context";
 import { registerUser, loginUser, logoutUser } from "@/backend/store";
 
