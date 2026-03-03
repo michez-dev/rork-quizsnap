@@ -4,6 +4,8 @@ import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { QuizProvider } from "@/providers/QuizProvider";
+import { AuthProvider } from "@/providers/AuthProvider";
+import { trpc, trpcClient } from "@/lib/trpc";
 import Colors from "@/constants/colors";
 
 SplashScreen.preventAutoHideAsync();
@@ -48,6 +50,10 @@ function RootLayoutNav() {
         name="edit-quiz"
         options={{ title: "Edit Quiz" }}
       />
+      <Stack.Screen
+        name="auth"
+        options={{ presentation: "modal", headerShown: false }}
+      />
     </Stack>
   );
 }
@@ -58,12 +64,16 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <GestureHandlerRootView>
-        <QuizProvider>
-          <RootLayoutNav />
-        </QuizProvider>
-      </GestureHandlerRootView>
-    </QueryClientProvider>
+    <trpc.Provider client={trpcClient} queryClient={queryClient}>
+      <QueryClientProvider client={queryClient}>
+        <GestureHandlerRootView>
+          <AuthProvider>
+            <QuizProvider>
+              <RootLayoutNav />
+            </QuizProvider>
+          </AuthProvider>
+        </GestureHandlerRootView>
+      </QueryClientProvider>
+    </trpc.Provider>
   );
 }

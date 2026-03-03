@@ -6,14 +6,38 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { Trash2, FileText, Shield, Info, ChevronRight } from 'lucide-react-native';
+import {
+  Trash2,
+  FileText,
+  Info,
+  ChevronRight,
+  User,
+  LogIn,
+  LogOut,
+  Cloud,
+  CloudOff,
+  RefreshCw,
+} from 'lucide-react-native';
 import { useQuiz } from '@/providers/QuizProvider';
+import { useAuth } from '@/providers/AuthProvider';
 import Colors from '@/constants/colors';
 
 export default function SettingsScreen() {
+  const router = useRouter();
   const { quizSets, allAttempts, clearAllData } = useQuiz();
+  const {
+    user,
+    isAuthenticated,
+    isSyncing,
+    lastSyncedAt,
+    logout,
+    syncToCloud,
+    syncFromCloud,
+  } = useAuth();
 
   const handleClearData = useCallback(() => {
     Alert.alert(
@@ -49,6 +73,71 @@ export default function SettingsScreen() {
     );
   }, [quizSets, allAttempts]);
 
+  const handleSyncToCloud = useCallback(async () => {
+    try {
+      await syncToCloud();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('Synced!', 'Your quizzes have been uploaded to the cloud.');
+    } catch (e: any) {
+      console.log('Sync to cloud error:', e);
+      Alert.alert('Sync Failed', e?.message || 'Could not sync data. Please try again.');
+    }
+  }, [syncToCloud]);
+
+  const handleSyncFromCloud = useCallback(async () => {
+    Alert.alert(
+      'Download from Cloud',
+      'This will replace your local data with cloud data. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Download',
+          onPress: async () => {
+            try {
+              await syncFromCloud();
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              Alert.alert('Done!', 'Cloud data has been downloaded to your device.');
+            } catch (e: any) {
+              console.log('Sync from cloud error:', e);
+              Alert.alert('Sync Failed', e?.message || 'Could not download data.');
+            }
+          },
+        },
+      ]
+    );
+  }, [syncFromCloud]);
+
+  const handleLogout = useCallback(() => {
+    Alert.alert(
+      'Sign Out',
+      'You will be signed out. Your local data will remain on this device.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            await logout();
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          },
+        },
+      ]
+    );
+  }, [logout]);
+
+  const formatSyncTime = (dateStr: string | null): string => {
+    if (!dateStr) return 'Never';
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return 'Just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHrs = Math.floor(diffMin / 60);
+    if (diffHrs < 24) return `${diffHrs}h ago`;
+    return d.toLocaleDateString();
+  };
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -65,6 +154,101 @@ export default function SettingsScreen() {
           <Text style={styles.appDesc}>
             Snap your study materials into interactive quizzes. All content is preserved exactly as written.
           </Text>
+        </View>
+
+        <Text style={styles.sectionLabel}>Account</Text>
+        <View style={styles.menuGroup}>
+          {isAuthenticated ? (
+            <>
+              <View style={styles.menuItem}>
+                <View style={styles.menuLeft}>
+                  <View style={[styles.menuIcon, { backgroundColor: '#E0F2FE' }]}>
+                    <User color={Colors.primary} size={18} />
+                  </View>
+                  <View style={styles.menuTextContainer}>
+                    <Text style={styles.menuTitle}>Signed In</Text>
+                    <Text style={styles.menuSubtitle}>{user?.email}</Text>
+                  </View>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.menuItem, styles.menuItemBorder]}
+                onPress={handleSyncToCloud}
+                disabled={isSyncing}
+                activeOpacity={0.7}
+              >
+                <View style={styles.menuLeft}>
+                  <View style={[styles.menuIcon, { backgroundColor: '#ECFDF5' }]}>
+                    {isSyncing ? (
+                      <ActivityIndicator size="small" color={Colors.success} />
+                    ) : (
+                      <Cloud color={Colors.success} size={18} />
+                    )}
+                  </View>
+                  <View style={styles.menuTextContainer}>
+                    <Text style={styles.menuTitle}>Sync to Cloud</Text>
+                    <Text style={styles.menuSubtitle}>
+                      Last synced: {formatSyncTime(lastSyncedAt)}
+                    </Text>
+                  </View>
+                </View>
+                <ChevronRight color={Colors.textTertiary} size={18} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.menuItem, styles.menuItemBorder]}
+                onPress={handleSyncFromCloud}
+                disabled={isSyncing}
+                activeOpacity={0.7}
+              >
+                <View style={styles.menuLeft}>
+                  <View style={[styles.menuIcon, { backgroundColor: '#EFF6FF' }]}>
+                    <RefreshCw color="#3B82F6" size={18} />
+                  </View>
+                  <View style={styles.menuTextContainer}>
+                    <Text style={styles.menuTitle}>Download from Cloud</Text>
+                    <Text style={styles.menuSubtitle}>Restore data from your account</Text>
+                  </View>
+                </View>
+                <ChevronRight color={Colors.textTertiary} size={18} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.menuItem, styles.menuItemBorder]}
+                onPress={handleLogout}
+                activeOpacity={0.7}
+              >
+                <View style={styles.menuLeft}>
+                  <View style={[styles.menuIcon, { backgroundColor: Colors.errorLight }]}>
+                    <LogOut color={Colors.error} size={18} />
+                  </View>
+                  <View>
+                    <Text style={[styles.menuTitle, { color: Colors.error }]}>Sign Out</Text>
+                    <Text style={styles.menuSubtitle}>Keep local data on device</Text>
+                  </View>
+                </View>
+                <ChevronRight color={Colors.textTertiary} size={18} />
+              </TouchableOpacity>
+            </>
+          ) : (
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => router.push('/auth')}
+              activeOpacity={0.7}
+            >
+              <View style={styles.menuLeft}>
+                <View style={[styles.menuIcon, { backgroundColor: '#E0F2FE' }]}>
+                  <LogIn color={Colors.primary} size={18} />
+                </View>
+                <View style={styles.menuTextContainer}>
+                  <Text style={styles.menuTitle}>Sign In / Register</Text>
+                  <Text style={styles.menuSubtitle}>Sync quizzes across devices</Text>
+                </View>
+              </View>
+              <ChevronRight color={Colors.textTertiary} size={18} />
+            </TouchableOpacity>
+          )}
         </View>
 
         <Text style={styles.sectionLabel}>Data</Text>
@@ -121,12 +305,20 @@ export default function SettingsScreen() {
           <View style={styles.menuItem}>
             <View style={styles.menuLeft}>
               <View style={[styles.menuIcon, { backgroundColor: '#EFF6FF' }]}>
-                <Shield color="#3B82F6" size={18} />
+                {isAuthenticated ? (
+                  <Cloud color="#3B82F6" size={18} />
+                ) : (
+                  <CloudOff color="#3B82F6" size={18} />
+                )}
               </View>
               <View style={styles.menuTextContainer}>
-                <Text style={styles.menuTitle}>On-Device Processing</Text>
+                <Text style={styles.menuTitle}>
+                  {isAuthenticated ? 'Cloud Sync Enabled' : 'On-Device Only'}
+                </Text>
                 <Text style={styles.menuSubtitle}>
-                  All quiz data is stored locally on your device. No data is sent to external servers.
+                  {isAuthenticated
+                    ? 'Data is synced to your account when you tap "Sync to Cloud".'
+                    : 'All quiz data is stored locally on your device. Sign in to enable cloud sync.'}
                 </Text>
               </View>
             </View>
