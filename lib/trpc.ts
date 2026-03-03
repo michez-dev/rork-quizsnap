@@ -8,14 +8,7 @@ export const trpc = createTRPCReact<AppRouter>();
 
 const getBaseUrl = () => {
   const url = process.env.EXPO_PUBLIC_RORK_API_BASE_URL;
-
-  if (!url) {
-    throw new Error(
-      "Rork did not set EXPO_PUBLIC_RORK_API_BASE_URL, please use support",
-    );
-  }
-
-  return url;
+  return url || '';
 };
 
 let authToken: string | null = null;
@@ -27,7 +20,7 @@ export function setAuthToken(token: string | null) {
 export const trpcClient = trpc.createClient({
   links: [
     httpLink({
-      url: `${getBaseUrl()}/api/trpc`,
+      url: getBaseUrl() ? `${getBaseUrl()}/api/trpc` : '/api/trpc',
       transformer: superjson,
       headers() {
         const headers: Record<string, string> = {};
