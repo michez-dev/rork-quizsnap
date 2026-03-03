@@ -165,9 +165,23 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       const attemptsData = await AsyncStorage.getItem('pdf_quiz_attempts');
       const groupsData = await AsyncStorage.getItem('pdf_quiz_groups');
 
+      const rawQuestions = questionsData ? JSON.parse(questionsData) : [];
+      const cleanedQuestions = rawQuestions.map((q: any) => ({
+        id: q.id,
+        quizSetId: q.quizSetId,
+        type: q.type,
+        text: q.text,
+        options: q.options,
+        correctAnswer: q.correctAnswer,
+        pageRef: q.pageRef,
+        verified: q.verified,
+        section: q.section,
+        imageUri: q.imageUri && q.imageUri.length < 5000 ? q.imageUri : undefined,
+      }));
+
       const localData = {
         quizSets: quizSetsData ? JSON.parse(quizSetsData) : [],
-        questions: questionsData ? JSON.parse(questionsData) : [],
+        questions: cleanedQuestions,
         attempts: attemptsData ? JSON.parse(attemptsData) : [],
         groups: groupsData ? JSON.parse(groupsData) : [],
       };
@@ -182,8 +196,12 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       const result = await trpcClient.sync.push.mutate(localData);
       setLastSyncedAt(result.lastSyncedAt);
       console.log('syncToCloud: done at', result.lastSyncedAt);
-    } catch (e) {
+    } catch (e: any) {
       console.log('syncToCloud error:', e);
+      const msg = e?.message || '';
+      if (msg.includes('Unexpected token') || msg.includes('unexpected character')) {
+        throw new Error('Sync data is too large. Try removing some quizzes or images and try again.');
+      }
       throw e;
     } finally {
       setIsSyncing(false);
@@ -236,9 +254,23 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       const attemptsData = await AsyncStorage.getItem('pdf_quiz_attempts');
       const groupsData = await AsyncStorage.getItem('pdf_quiz_groups');
 
+      const rawQuestions = questionsData ? JSON.parse(questionsData) : [];
+      const cleanedQuestions = rawQuestions.map((q: any) => ({
+        id: q.id,
+        quizSetId: q.quizSetId,
+        type: q.type,
+        text: q.text,
+        options: q.options,
+        correctAnswer: q.correctAnswer,
+        pageRef: q.pageRef,
+        verified: q.verified,
+        section: q.section,
+        imageUri: q.imageUri && q.imageUri.length < 5000 ? q.imageUri : undefined,
+      }));
+
       const localData = {
         quizSets: quizSetsData ? JSON.parse(quizSetsData) : [],
-        questions: questionsData ? JSON.parse(questionsData) : [],
+        questions: cleanedQuestions,
         attempts: attemptsData ? JSON.parse(attemptsData) : [],
         groups: groupsData ? JSON.parse(groupsData) : [],
       };
@@ -261,8 +293,12 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       queryClient.invalidateQueries({ queryKey: ['attempts'] });
       queryClient.invalidateQueries({ queryKey: ['quizGroups'] });
       console.log('mergeAndSync: done, merged sets:', merged.quizSets.length);
-    } catch (e) {
+    } catch (e: any) {
       console.log('mergeAndSync error:', e);
+      const msg = e?.message || '';
+      if (msg.includes('Unexpected token') || msg.includes('unexpected character')) {
+        throw new Error('Sync data is too large. Try removing some quizzes or images and try again.');
+      }
       throw e;
     } finally {
       setIsSyncing(false);
