@@ -33,13 +33,10 @@ interface AttachedImage {
 interface ImageMapEntry {
   questionNumber: number;
   questionText: string;
-  spatialPosition: string;
   imageDescription: string;
 }
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
-
-const IMAGE_EDIT_URL = 'https://toolkit.rork.com/images/edit/';
 
 export default function AIAssistantScreen() {
   const router = useRouter();
@@ -50,11 +47,10 @@ export default function AIAssistantScreen() {
   const flatListRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const lastSentImagesRef = useRef<string[]>([]);
-  const extractedImagesRef = useRef<Record<number, string>>({});
+  const lastSentImagesRef = useRef<AttachedImage[]>([]);
   const imageMapRef = useRef<ImageMapEntry[]>([]);
 
-  const SYSTEM_PROMPT = `You are a quiz extraction and creation assistant. You can extract quizzes from images AND generate new quizzes from scratch when asked.
+  const SYSTEM_PROMPT = `You are a quiz extraction and creation assistant. Your PRIMARY job is to accurately extract quiz text from screenshots and create quizzes.
 
 When the user asks you to CREATE or GENERATE a quiz (e.g. "create a 10-question quiz about X", "make a quiz on Y"), you MUST:
 1. Generate the questions yourself with 4 answer options (A, B, C, D) each
@@ -76,54 +72,44 @@ C) Option
 D) Option
 Answer: A
 
-CRITICAL RULES:
-- Always include 4 options (A, B, C, D) for each question
-- Always include "Answer: X" line after each question
+CRITICAL RULES FOR TEXT EXTRACTION:
+- Read EVERY question EXACTLY as written in the screenshot. Do NOT paraphrase, rephrase, or reword anything.
+- Copy the text character by character from the image. Accuracy is paramount.
+- Always include 4 options (A, B, C, D) for each question (or however many are shown)
+- Always include "Answer: X" line after each question. If the answer is visible, use it. If not visible, mark it as the most likely correct answer.
 - Number questions sequentially (1. 2. 3. etc.)
 - When you encounter ANY mathematical expressions, formulas, equations, symbols, or notation, you MUST write them using LaTeX notation with dollar sign delimiters ($...$)
 - Examples: "$x^2 + 3x - 5$", "$\\sqrt{x}$", "$\\frac{a}{b}$", "$\\int x \\, dx$", "$\\alpha$", "$x \\geq 5$", "$\\lim_{x \\to 0}$"
 - This applies to ALL math content in question text AND answer choices
+- If multiple screenshots are provided, process ALL of them. Extract questions from EACH screenshot.
+- Maintain sequential numbering across all screenshots.
 
-IMAGE EXTRACTION FROM SCREENSHOTS (VERY IMPORTANT - follow these steps exactly):
-When extracting quizzes from screenshots that contain images/diagrams/figures/graphs:
-1. FIRST call analyzeScreenshotImages to precisely map which questions have images and where they are spatially in the screenshot. This is MANDATORY before any extraction.
-2. THEN call extractQuestionImage for EACH question that has an image, ONE AT A TIME, using the spatial data from the analysis step.
-3. FINALLY call createQuizFromText with the quiz text and the list of question numbers that have images.
-
-NEVER skip the analysis step. NEVER try to crop images without analyzing first.
-The analysis step creates a precise spatial map that prevents image swapping between questions.
-Process images strictly one at a time and in order from top to bottom of the screenshot.`;
+IMAGES IN QUESTIONS:
+If any questions contain images/diagrams/figures/graphs:
+1. Call markQuestionsWithImages to note which questions have images and describe what each image shows.
+2. Then call createQuizFromText with the quiz text and the list of question numbers that have images.
+The original screenshot will be attached to those questions so the user can reference the image.
+Do NOT try to extract or recreate the images. Just accurately note which questions have them.`;
 
   const { messages, error, sendMessage, setMessages } = useRorkAgent({
     // @ts-expect-error system prompt passed through to transport body
     system: SYSTEM_PROMPT,
     tools: {
-      analyzeScreenshotImages: createRorkTool({
-        description: 'STEP 1 (MANDATORY): Analyze a quiz screenshot to identify which questions contain images and their precise spatial locations. You MUST call this FIRST before extracting any images. This creates an accurate spatial map so images are correctly matched to questions and never swapped. Returns structured data about each image found.',
+      markQuestionsWithImages: createRorkTool({
+        description: 'Mark which questions in the screenshot have accompanying images/diagrams/figures. Call this BEFORE createQuizFromText if any questions contain visual content. The original screenshot will be attached to those questions.',
         zodSchema: z.object({
-          imageIndex: z.number().describe('Index of the source screenshot (0-based)'),
-          totalQuestions: z.number().describe('Total number of questions visible in the screenshot'),
           questionsWithImages: z.array(z.object({
             questionNumber: z.number().describe('The question number (1-based) that has an image'),
-            questionTextSnippet: z.string().describe('First 60 characters of the question text, for verification'),
-            spatialPosition: z.string().describe('Precise spatial position in the screenshot: e.g. "top-left quarter", "center-right between Q2 and Q3 text", "bottom third, left side"'),
-            imageDescription: z.string().describe('Detailed visual description of what the image actually shows (e.g. "a right triangle with sides labeled a=3, b=4, c=5", "a bar chart with 4 bars showing population by decade", "a circuit diagram with 3 resistors in series"). Be very specific.'),
-            verticalPosition: z.string().describe('Approximate vertical percentage range from top of screenshot: e.g. "10-25%" means the image is between 10% and 25% from the top'),
-          })).describe('Array of questions that have accompanying images/diagrams/figures'),
+            imageDescription: z.string().describe('Brief description of what the image shows'),
+            sourceImageIndex: z.number().describe('Which screenshot (0-based) contains this image'),
+          })),
         }),
         execute(toolInput) {
-          console.log('analyzeScreenshotImages called:', JSON.stringify(toolInput, null, 2));
-          const sourceImages = lastSentImagesRef.current;
-          const idx = toolInput.imageIndex;
-
-          if (idx < 0 || idx >= sourceImages.length) {
-            return `Image index ${idx} is out of range. Available images: 0 to ${sourceImages.length - 1}.`;
-          }
+          console.log('markQuestionsWithImages called:', JSON.stringify(toolInput, null, 2));
 
           const imageMap: ImageMapEntry[] = toolInput.questionsWithImages.map(q => ({
             questionNumber: q.questionNumber,
-            questionText: q.questionTextSnippet,
-            spatialPosition: `${q.spatialPosition} (vertical: ${q.verticalPosition})`,
+            questionText: '',
             imageDescription: q.imageDescription,
           }));
 
@@ -131,102 +117,22 @@ Process images strictly one at a time and in order from top to bottom of the scr
           console.log('Image map created with', imageMap.length, 'entries');
 
           if (imageMap.length === 0) {
-            return 'No images found in the screenshot. Proceed with text-only quiz creation using createQuizFromText.';
+            return 'No images marked. Proceed with createQuizFromText.';
           }
 
-          const summary = imageMap.map(m =>
-            `Q${m.questionNumber}: "${m.questionText}" -> Image at ${m.spatialPosition}: ${m.imageDescription}`
-          ).join('\n');
-
-          return `Analysis complete. Found ${imageMap.length} image(s):\n${summary}\n\nNow call extractQuestionImage for EACH image listed above, one at a time, in order from top to bottom. Start with Q${imageMap[0].questionNumber}.`;
-        },
-      }),
-      extractQuestionImage: createRorkTool({
-        description: 'STEP 2: Extract a specific image from the screenshot for ONE question. Call this AFTER analyzeScreenshotImages, once per question that has an image. Process them one at a time, in order from top to bottom. The tool uses the spatial map from analysis to precisely locate the correct image.',
-        zodSchema: z.object({
-          imageIndex: z.number().describe('Index of the source screenshot (0-based)'),
-          questionNumber: z.number().describe('The question number (1-based) this image belongs to'),
-        }),
-        async execute(toolInput) {
-          console.log('extractQuestionImage called for question', toolInput.questionNumber);
-          const sourceImages = lastSentImagesRef.current;
-          const idx = toolInput.imageIndex;
-
-          if (idx < 0 || idx >= sourceImages.length) {
-            return `Image index ${idx} is out of range.`;
-          }
-
-          const mapEntry = imageMapRef.current.find(m => m.questionNumber === toolInput.questionNumber);
-          if (!mapEntry) {
-            return `No image mapping found for question ${toolInput.questionNumber}. Did you run analyzeScreenshotImages first?`;
-          }
-
-          try {
-            const extractPrompt = [
-              `TASK: You are looking at a quiz screenshot. Extract ONLY ONE specific image/diagram/figure from it.`,
-              ``,
-              `TARGET IMAGE DETAILS:`,
-              `- Belongs to: Question ${mapEntry.questionNumber}`,
-              `- Question text starts with: "${mapEntry.questionText}"`,
-              `- Location in screenshot: ${mapEntry.spatialPosition}`,
-              `- What the image shows: ${mapEntry.imageDescription}`,
-              ``,
-              `INSTRUCTIONS:`,
-              `- Find the image/diagram/figure at the specified location in the screenshot`,
-              `- Extract ONLY that specific image - nothing else`,
-              `- Do NOT include any question text, numbers, or answer options`,
-              `- Do NOT include images from other questions - ONLY the one at the specified position`,
-              `- Do NOT generate or recreate the image - faithfully reproduce what exists in the screenshot`,
-              `- Keep the extracted image on a clean white background`,
-              `- Preserve all labels, markings, and details that are part of the diagram/figure`,
-              `- The output should be ONLY the diagram/figure, cropped tightly`,
-            ].join('\n');
-
-            console.log('Extraction prompt for Q' + mapEntry.questionNumber + ':', extractPrompt.substring(0, 200) + '...');
-
-            const response = await fetch(IMAGE_EDIT_URL, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                prompt: extractPrompt,
-                images: [{ type: 'image', image: sourceImages[idx] }],
-                aspectRatio: '1:1',
-              }),
-            });
-
-            if (!response.ok) {
-              console.log('Image edit API error:', response.status);
-              return `Failed to extract image for Q${toolInput.questionNumber} (HTTP ${response.status}). Quiz will be created without this image.`;
-            }
-
-            const data = await response.json();
-            const dataUri = `data:${data.image.mimeType};base64,${data.image.base64Data}`;
-            extractedImagesRef.current[toolInput.questionNumber] = dataUri;
-            console.log('Successfully extracted image for question', toolInput.questionNumber);
-
-            const remaining = imageMapRef.current.filter(
-              m => m.questionNumber > toolInput.questionNumber && !extractedImagesRef.current[m.questionNumber]
-            );
-            const nextHint = remaining.length > 0
-              ? ` Next: extract image for Q${remaining[0].questionNumber}.`
-              : ' All images extracted. Now call createQuizFromText.';
-
-            return `Successfully extracted image for Q${toolInput.questionNumber} (${mapEntry.imageDescription}).${nextHint}`;
-          } catch (err) {
-            console.log('Error extracting image:', err);
-            return `Failed to extract image for Q${toolInput.questionNumber}: ${err instanceof Error ? err.message : 'Unknown error'}. Quiz will be created without this image.`;
-          }
+          return `Marked ${imageMap.length} question(s) as having images. Now call createQuizFromText with questionsWithImages listing those question numbers.`;
         },
       }),
       createQuizFromText: createRorkTool({
-        description: 'STEP 3 (final): Create a quiz from extracted text. Use AFTER extracting all images (if any). Pass quiz text in numbered format. Math expressions MUST use LaTeX with $...$ delimiters.',
+        description: 'Create a quiz from extracted text. Pass quiz text in numbered format with options and answers. Math expressions MUST use LaTeX with $...$ delimiters. If any questions have images, first call markQuestionsWithImages, then pass those question numbers in questionsWithImages.',
         zodSchema: z.object({
           title: z.string().describe('Title for the quiz set'),
-          quizText: z.string().describe('The quiz text in numbered format with options and answers'),
+          quizText: z.string().describe('The quiz text in numbered format with options and answers. Must be EXACTLY as shown in the screenshot - do not rephrase.'),
           questionsWithImages: z.array(z.number()).describe('Array of question numbers (1-based) that have images. Leave empty [] if no questions have images.').optional(),
         }),
         execute(toolInput) {
           console.log('createQuizFromText tool called:', toolInput.title);
+          console.log('Quiz text length:', toolInput.quizText.length);
           const result = parseTextToQuestions(toolInput.quizText);
           console.log('Parsed questions:', result.questions.length, 'warnings:', result.warnings.length);
 
@@ -236,21 +142,35 @@ Process images strictly one at a time and in order from top to bottom of the scr
 
           const questionsWithImages = toolInput.questionsWithImages ?? [];
           let imagesAttached = 0;
-          const questionsWithExtractedImages = result.questions.map((q, index) => {
+
+          const questionsWithAttachedImages = result.questions.map((q, index) => {
             const qNum = index + 1;
-            const extractedUri = extractedImagesRef.current[qNum];
-            if (extractedUri && questionsWithImages.includes(qNum)) {
-              imagesAttached++;
-              return { ...q, imageUri: extractedUri };
+            if (questionsWithImages.includes(qNum)) {
+              const mapEntry = imageMapRef.current.find(m => m.questionNumber === qNum);
+              const sourceIdx = mapEntry ? (toolInput.questionsWithImages ?? []).indexOf(qNum) : 0;
+              const sourceImages = lastSentImagesRef.current;
+
+              let imageUri: string | undefined;
+              if (sourceImages.length > 0) {
+                const imgIdx = Math.min(sourceIdx, sourceImages.length - 1);
+                const img = sourceImages[imgIdx >= 0 ? imgIdx : 0];
+                if (img.base64) {
+                  imageUri = `data:${img.mimeType};base64,${img.base64}`;
+                  imagesAttached++;
+                } else if (img.uri) {
+                  imageUri = img.uri;
+                  imagesAttached++;
+                }
+              }
+              return { ...q, imageUri };
             }
             return q;
           });
 
-          setPendingQuestions(questionsWithExtractedImages);
+          setPendingQuestions(questionsWithAttachedImages);
           setPendingTitle(toolInput.title);
           setPendingSource('AI Assistant');
 
-          extractedImagesRef.current = {};
           imageMapRef.current = [];
 
           setTimeout(() => {
@@ -261,7 +181,7 @@ Process images strictly one at a time and in order from top to bottom of the scr
             ? `\nWarnings: ${result.warnings.join(', ')}`
             : '';
           const imageNote = imagesAttached > 0
-            ? `\n${imagesAttached} image(s) correctly attached to their questions.`
+            ? `\n${imagesAttached} question(s) have the original screenshot attached for image reference.`
             : '';
 
           return `Successfully parsed ${result.questions.length} questions for "${toolInput.title}". Redirecting to the preview editor where you can review and save them.${imageNote}${warnings}`;
@@ -347,12 +267,11 @@ Process images strictly one at a time and in order from top to bottom of the scr
     }));
 
     if (validImages.length > 0) {
-      lastSentImagesRef.current = validImages.map(img => img.base64 as string);
-      extractedImagesRef.current = {};
+      lastSentImagesRef.current = validImages;
       imageMapRef.current = [];
     }
 
-    const messageText = text || 'Please extract the quiz questions from this image and convert them to text format. IMPORTANT: Any mathematical expressions, formulas, equations, or symbols must be written in LaTeX format using $...$ delimiters (e.g. $x^2$, $\\frac{a}{b}$, $\\sqrt{x}$). If any questions contain images (diagrams, figures, graphs, photos), first call analyzeScreenshotImages to map their exact positions, then extractQuestionImage for each one individually, and finally createQuizFromText.';
+    const messageText = text || 'Please extract the quiz questions from this image and convert them to a quiz. IMPORTANT: Copy the text EXACTLY as written - do not paraphrase. Any mathematical expressions must use LaTeX format with $...$ delimiters. If any questions have images/diagrams/figures, call markQuestionsWithImages first, then createQuizFromText.';
 
     if (files.length > 0) {
       sendMessage({ text: messageText, files });
@@ -386,8 +305,7 @@ Process images strictly one at a time and in order from top to bottom of the scr
 
   const getToolStatusText = useCallback((toolName: string) => {
     switch (toolName) {
-      case 'analyzeScreenshotImages': return 'Analyzing screenshot layout...';
-      case 'extractQuestionImage': return 'Extracting image...';
+      case 'markQuestionsWithImages': return 'Identifying images in questions...';
       case 'createQuizFromText': return 'Creating quiz...';
       default: return `Running ${toolName}...`;
     }

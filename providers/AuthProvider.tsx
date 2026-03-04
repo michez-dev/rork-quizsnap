@@ -223,8 +223,24 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         groups: cloudData.groups.length,
       });
 
+      const localQuestionsRaw = await AsyncStorage.getItem('pdf_quiz_questions');
+      const localQuestions: { id: string; imageUri?: string }[] = localQuestionsRaw ? JSON.parse(localQuestionsRaw) : [];
+      const localImageMap = new Map<string, string>();
+      for (const q of localQuestions) {
+        if (q.imageUri) {
+          localImageMap.set(q.id, q.imageUri);
+        }
+      }
+
+      const mergedQuestions = cloudData.questions.map((cq: any) => {
+        if (!cq.imageUri && localImageMap.has(cq.id)) {
+          return { ...cq, imageUri: localImageMap.get(cq.id) };
+        }
+        return cq;
+      });
+
       await AsyncStorage.setItem('pdf_quiz_sets', JSON.stringify(cloudData.quizSets));
-      await AsyncStorage.setItem('pdf_quiz_questions', JSON.stringify(cloudData.questions));
+      await AsyncStorage.setItem('pdf_quiz_questions', JSON.stringify(mergedQuestions));
       await AsyncStorage.setItem('pdf_quiz_attempts', JSON.stringify(cloudData.attempts));
       await AsyncStorage.setItem('pdf_quiz_groups', JSON.stringify(cloudData.groups));
 
@@ -233,7 +249,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       queryClient.invalidateQueries({ queryKey: ['questions'] });
       queryClient.invalidateQueries({ queryKey: ['attempts'] });
       queryClient.invalidateQueries({ queryKey: ['quizGroups'] });
-      console.log('syncFromCloud: done');
+      console.log('syncFromCloud: done, preserved', localImageMap.size, 'local images');
     } catch (e) {
       console.log('syncFromCloud error:', e);
       throw e;
@@ -255,18 +271,24 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       const groupsData = await AsyncStorage.getItem('pdf_quiz_groups');
 
       const rawQuestions = questionsData ? JSON.parse(questionsData) : [];
-      const cleanedQuestions = rawQuestions.map((q: any) => ({
-        id: q.id,
-        quizSetId: q.quizSetId,
-        type: q.type,
-        text: q.text,
-        options: q.options,
-        correctAnswer: q.correctAnswer,
-        pageRef: q.pageRef,
-        verified: q.verified,
-        section: q.section,
-        imageUri: q.imageUri && q.imageUri.length < 5000 ? q.imageUri : undefined,
-      }));
+      const localImageMap = new Map<string, string>();
+      const cleanedQuestions = rawQuestions.map((q: any) => {
+        if (q.imageUri && q.imageUri.length >= 5000) {
+          localImageMap.set(q.id, q.imageUri);
+        }
+        return {
+          id: q.id,
+          quizSetId: q.quizSetId,
+          type: q.type,
+          text: q.text,
+          options: q.options,
+          correctAnswer: q.correctAnswer,
+          pageRef: q.pageRef,
+          verified: q.verified,
+          section: q.section,
+          imageUri: q.imageUri && q.imageUri.length < 5000 ? q.imageUri : undefined,
+        };
+      });
 
       const localData = {
         quizSets: quizSetsData ? JSON.parse(quizSetsData) : [],
@@ -278,12 +300,20 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       console.log('mergeAndSync: merging local data with cloud...', {
         localSets: localData.quizSets.length,
         localQuestions: localData.questions.length,
+        localImages: localImageMap.size,
       });
 
       const merged = await trpcClient.sync.mergeLocal.mutate(localData);
 
+      const mergedQuestions = merged.questions.map((mq: any) => {
+        if (!mq.imageUri && localImageMap.has(mq.id)) {
+          return { ...mq, imageUri: localImageMap.get(mq.id) };
+        }
+        return mq;
+      });
+
       await AsyncStorage.setItem('pdf_quiz_sets', JSON.stringify(merged.quizSets));
-      await AsyncStorage.setItem('pdf_quiz_questions', JSON.stringify(merged.questions));
+      await AsyncStorage.setItem('pdf_quiz_questions', JSON.stringify(mergedQuestions));
       await AsyncStorage.setItem('pdf_quiz_attempts', JSON.stringify(merged.attempts));
       await AsyncStorage.setItem('pdf_quiz_groups', JSON.stringify(merged.groups));
 
@@ -292,7 +322,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       queryClient.invalidateQueries({ queryKey: ['questions'] });
       queryClient.invalidateQueries({ queryKey: ['attempts'] });
       queryClient.invalidateQueries({ queryKey: ['quizGroups'] });
-      console.log('mergeAndSync: done, merged sets:', merged.quizSets.length);
+      console.log('mergeAndSync: done, merged sets:', merged.quizSets.length, 'preserved images:', localImageMap.size);
     } catch (e: any) {
       console.log('mergeAndSync error:', e);
       const msg = e?.message || '';
