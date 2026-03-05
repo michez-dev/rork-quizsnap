@@ -129,17 +129,35 @@ export default function UploadScreen() {
     }).start();
   }, []);
 
-  const AI_PROMPT = `Extract all questions, answer options, and correct answers from this document.
+  const AI_PROMPT = `You are a precise quiz extraction tool. Extract all questions, their SEPARATE answer options, and correct answers from this document.
 
-RULES:
-- Preserve the EXACT original wording of the content. Do not rephrase, improve, or create new content.
-- IMPORTANT: Strip leading option letters/numbers from the answer text. The options array should contain ONLY the answer text, NOT the letter prefix. For example if the document says "A) Paris" or "A. Paris" or "a) Paris", the option should be just "Paris". Similarly "1) Paris" should become "Paris". The letter/number is just a label and must be removed. The correctAnswers must also contain ONLY the answer text without any letter prefix.
-- If a question has multiple correct answers, list all of them in correctAnswers array.
+CRITICAL STRUCTURE RULES:
+- Each question MUST have its "text" field contain ONLY the question stem/prompt. NEVER put answer options inside the question text.
+- Each answer option MUST be a SEPARATE string in the "options" array. NEVER combine multiple options into one string.
+- For example, if a question says "What is 2+2?" with options "A) 3", "B) 4", "C) 5", "D) 6", then:
+  - text: "What is 2+2?"
+  - options: ["3", "4", "5", "6"]
+  - NOT text: "What is 2+2? ⇒ 3 ⇒ 4 - 5 - 6" with empty options
+
+OPTION EXTRACTION RULES:
+- Look for answer options marked with letters (A, B, C, D...), numbers (1, 2, 3...), bullets, dashes, arrows (⇒, →), or listed below each question.
+- Strip the leading letter/number/bullet/arrow from each option. Options array should contain ONLY the answer text.
+- If options are separated by dashes (-), arrows (⇒, →), or line breaks, split them into SEPARATE entries in the options array.
+- Even if options appear on the same line separated by symbols, they are SEPARATE options.
+
+CORRECT ANSWER DETECTION:
+- Look for visual indicators: checkmarks (✓, ✗), highlighting, circled answers, underlined text, bold text, arrows pointing to correct answer, crosses (X), colored backgrounds, or any other visual marking.
+- If an answer is marked/highlighted/checked/crossed/arrowed, that is the correct answer.
+- If there is an answer key at the end (e.g. "1. A", "2. B,C"), map those to the actual option TEXT.
+- If multiple answers are marked correct, list ALL of them in correctAnswers and set type to "multiple-select".
 - If correct answers cannot be determined, leave correctAnswers empty and add a warning.
+
+GENERAL RULES:
+- Preserve the EXACT original wording. Do not rephrase or create new content.
 - Detect question type: multiple-choice (single correct), multiple-select (multiple correct), true-false, or short-answer.
-- If there is an answer key at the end (e.g. "1. A", "2. B,C"), map those answers to the questions by matching the letter to the corresponding option text. The correctAnswers should contain the actual option TEXT, not the letter.
+- If a question has options, it is NEVER "short-answer". Use "multiple-choice" or "multiple-select".
 - Include any parsing issues in warnings.
-- IMPORTANT: If any question or answer option contains mathematical expressions, formulas, equations, fractions, exponents, roots, integrals, summations, Greek letters, or any math notation, wrap them in LaTeX delimiters using $...$ for inline math. For example: "x^2 + 3x - 5" should become "$x^2 + 3x - 5$", "sqrt(x)" should become "$\\sqrt{x}$", "a/b" in math context should become "$\\frac{a}{b}$", "alpha" as a Greek letter should become "$\\alpha$". Preserve the surrounding non-math text exactly as-is.`;
+- IMPORTANT: If any text contains mathematical expressions, formulas, equations, fractions, exponents, roots, integrals, summations, Greek letters, or any math notation, wrap them in LaTeX delimiters using $...$ for inline math. For example: "x^2 + 3x - 5" should become "$x^2 + 3x - 5$", "sqrt(x)" should become "$\\sqrt{x}$", "a/b" in math context should become "$\\frac{a}{b}$", "alpha" as a Greek letter should become "$\\alpha$". Preserve the surrounding non-math text exactly as-is.`;
 
   const processAiResult = useCallback((parsed: z.infer<typeof parsedQuestionSchema>, fallbackTitle: string) => {
     if (!parsed.questions || parsed.questions.length === 0) {

@@ -72,11 +72,30 @@ C) Option
 D) Option
 Answer: A
 
-CRITICAL RULES FOR TEXT EXTRACTION:
+CRITICAL RULES FOR TEXT EXTRACTION FROM SCREENSHOTS:
 - Read EVERY question EXACTLY as written in the screenshot. Do NOT paraphrase, rephrase, or reword anything.
 - Copy the text character by character from the image. Accuracy is paramount.
-- Always include 4 options (A, B, C, D) for each question (or however many are shown)
-- Always include "Answer: X" line after each question. If the answer is visible, use it. If not visible, mark it as the most likely correct answer.
+
+SEPARATING QUESTIONS FROM OPTIONS (MOST IMPORTANT):
+- The question text goes on the numbered line (e.g. "1. What is the capital?"). It must contain ONLY the question stem/prompt.
+- NEVER put answer options inside the question text line. Options go on separate A), B), C), D) lines.
+- If options in the screenshot are separated by arrows (\u21d2, \u2192), dashes (-), bullets, or line breaks, each one becomes a SEPARATE lettered option line.
+- Example: If screenshot shows "Il prodotto restituisce: \u21d2 Uno scalare \u21d2 Un tensore - Una matrice - Un tensore di ordine uno"
+  Then output:
+  1. Il prodotto restituisce:
+  A) Uno scalare
+  B) Un tensore
+  C) Una matrice
+  D) Un tensore di ordine uno
+
+DETECTING CORRECT ANSWERS:
+- Look for visual indicators: checkmarks (\u2713), crosses (X, \u2717), highlighting, circled answers, underlined text, bold text, arrows pointing to correct answer, colored backgrounds, or any other visual marking.
+- If an answer is marked/highlighted/checked/crossed/arrowed, that is the correct answer. Use its letter in the Answer line.
+- If the correct answer is not visually marked, try your best guess and note it in the output.
+
+OTHER RULES:
+- Always include the correct number of options (A, B, C, D or however many are shown)
+- Always include "Answer: X" line after each question
 - Number questions sequentially (1. 2. 3. etc.)
 - When you encounter ANY mathematical expressions, formulas, equations, symbols, or notation, you MUST write them using LaTeX notation with dollar sign delimiters ($...$)
 - Examples: "$x^2 + 3x - 5$", "$\\sqrt{x}$", "$\\frac{a}{b}$", "$\\int x \\, dx$", "$\\alpha$", "$x \\geq 5$", "$\\lim_{x \\to 0}$"

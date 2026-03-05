@@ -155,8 +155,8 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
   const syncToCloud = useCallback(async () => {
     if (!token || !user) {
-      console.log('syncToCloud: not authenticated');
-      return;
+      console.log('syncToCloud: not authenticated locally');
+      throw new Error('You are not signed in. Please sign in first to sync your data.');
     }
     setIsSyncing(true);
     try {
@@ -199,6 +199,14 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     } catch (e: any) {
       console.log('syncToCloud error:', e);
       const msg = e?.message || '';
+      if (msg.includes('Not authenticated') || msg.includes('not authenticated')) {
+        setAuthToken(null);
+        setToken(null);
+        setUser(null);
+        await removeToken();
+        await removeUser();
+        throw new Error('Your session has expired. Please sign in again.');
+      }
       if (msg.includes('Unexpected token') || msg.includes('unexpected character')) {
         throw new Error('Sync data is too large. Try removing some quizzes or images and try again.');
       }
@@ -210,8 +218,8 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
   const syncFromCloud = useCallback(async () => {
     if (!token || !user) {
-      console.log('syncFromCloud: not authenticated');
-      return;
+      console.log('syncFromCloud: not authenticated locally');
+      throw new Error('You are not signed in. Please sign in first to sync your data.');
     }
     setIsSyncing(true);
     try {
@@ -250,8 +258,17 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       queryClient.invalidateQueries({ queryKey: ['attempts'] });
       queryClient.invalidateQueries({ queryKey: ['quizGroups'] });
       console.log('syncFromCloud: done, preserved', localImageMap.size, 'local images');
-    } catch (e) {
+    } catch (e: any) {
       console.log('syncFromCloud error:', e);
+      const msg = e?.message || '';
+      if (msg.includes('Not authenticated') || msg.includes('not authenticated')) {
+        setAuthToken(null);
+        setToken(null);
+        setUser(null);
+        await removeToken();
+        await removeUser();
+        throw new Error('Your session has expired. Please sign in again.');
+      }
       throw e;
     } finally {
       setIsSyncing(false);
@@ -260,8 +277,8 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
   const mergeAndSync = useCallback(async () => {
     if (!token || !user) {
-      console.log('mergeAndSync: not authenticated');
-      return;
+      console.log('mergeAndSync: not authenticated locally');
+      throw new Error('You are not signed in. Please sign in first to sync your data.');
     }
     setIsSyncing(true);
     try {
@@ -326,6 +343,14 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     } catch (e: any) {
       console.log('mergeAndSync error:', e);
       const msg = e?.message || '';
+      if (msg.includes('Not authenticated') || msg.includes('not authenticated')) {
+        setAuthToken(null);
+        setToken(null);
+        setUser(null);
+        await removeToken();
+        await removeUser();
+        throw new Error('Your session has expired. Please sign in again.');
+      }
       if (msg.includes('Unexpected token') || msg.includes('unexpected character')) {
         throw new Error('Sync data is too large. Try removing some quizzes or images and try again.');
       }
