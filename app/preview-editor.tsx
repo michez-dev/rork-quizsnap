@@ -9,12 +9,11 @@ import {
   Animated,
   Alert,
   ActivityIndicator,
-  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
-import { Image } from 'expo-image';
+import QuestionImage from '@/components/QuestionImage';
 import {
   Check,
   AlertTriangle,
@@ -63,7 +62,7 @@ export default function PreviewEditorScreen() {
       duration: 300,
       useNativeDriver: true,
     }).start();
-  }, []);
+  }, [fadeAnim]);
 
   const unverifiedCount = questions.filter(q => !q.verified).length;
 
@@ -76,12 +75,12 @@ export default function PreviewEditorScreen() {
   }, []);
 
   const handleDeleteQuestion = useCallback((index: number) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setQuestions(prev => prev.filter((_, i) => i !== index));
   }, []);
 
   const handleAddQuestion = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const newQ: ParsedQuestion = {
       text: '',
       options: ['', '', '', ''],
@@ -120,7 +119,7 @@ export default function PreviewEditorScreen() {
       }
       return updated;
     });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }, []);
 
   const handleChangeType = useCallback((qIndex: number, newType: QuestionType) => {
@@ -156,7 +155,7 @@ export default function PreviewEditorScreen() {
       }
       return updated;
     });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }, []);
 
   const handleUpdateOption = useCallback((qIndex: number, optIndex: number, value: string) => {
@@ -222,8 +221,8 @@ export default function PreviewEditorScreen() {
       });
 
       if (!result.canceled && result.assets[0]) {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        handleUpdateQuestion(qIndex, { imageUri: result.assets[0].uri });
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        handleUpdateQuestion(qIndex, { imageUri: result.assets[0].uri, imageRegion: undefined });
       }
     } catch (e) {
       console.log('Image picker error:', e);
@@ -232,8 +231,8 @@ export default function PreviewEditorScreen() {
   }, [handleUpdateQuestion]);
 
   const handleRemoveImage = useCallback((qIndex: number) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    handleUpdateQuestion(qIndex, { imageUri: undefined });
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    handleUpdateQuestion(qIndex, { imageUri: undefined, imageRegion: undefined });
   }, [handleUpdateQuestion]);
 
   const [convertingIndex, setConvertingIndex] = useState<number | null>(null);
@@ -243,7 +242,7 @@ export default function PreviewEditorScreen() {
     if (!q) return;
 
     setConvertingIndex(qIndex);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     const LATEX_PROMPT = `Convert any mathematical expressions in the following text to LaTeX notation wrapped in $...$ delimiters for inline math.
 
@@ -300,7 +299,7 @@ RULES:
         correctAnswer: newCorrectAnswer,
       });
 
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e) {
       console.log('AI LaTeX conversion error:', e);
       Alert.alert('Conversion Failed', 'Could not convert math expressions. Please try again.');
@@ -308,6 +307,23 @@ RULES:
       setConvertingIndex(null);
     }
   }, [questions, handleUpdateQuestion]);
+
+  const doCreate = useCallback(async () => {
+    try {
+      await createQuizSet({
+        title: title || 'Untitled Quiz',
+        description: '',
+        sourcePdfName: pendingSource,
+        questions,
+      });
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setPendingQuestions([]);
+      router.dismissAll();
+    } catch (e) {
+      console.log('Error creating quiz set:', e);
+      Alert.alert('Error', 'Could not create quiz set. Please try again.');
+    }
+  }, [createQuizSet, pendingSource, questions, router, setPendingQuestions, title]);
 
   const handleCreateQuizSet = useCallback(async () => {
     if (questions.length === 0) {
@@ -323,8 +339,8 @@ RULES:
           { text: 'Cancel', style: 'cancel' },
           {
             text: 'Create Anyway',
-            onPress: async () => {
-              await doCreate();
+            onPress: () => {
+              void doCreate();
             },
           },
         ]
@@ -333,24 +349,7 @@ RULES:
     }
 
     await doCreate();
-  }, [questions, unverifiedCount, title, pendingSource]);
-
-  const doCreate = async () => {
-    try {
-      await createQuizSet({
-        title: title || 'Untitled Quiz',
-        description: '',
-        sourcePdfName: pendingSource,
-        questions,
-      });
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setPendingQuestions([]);
-      router.dismissAll();
-    } catch (e) {
-      console.log('Error creating quiz set:', e);
-      Alert.alert('Error', 'Could not create quiz set. Please try again.');
-    }
-  };
+  }, [doCreate, questions.length, unverifiedCount]);
 
   const isOptionCorrect = (q: ParsedQuestion, option: string): boolean => {
     if (Array.isArray(q.correctAnswer)) {
@@ -490,10 +489,10 @@ RULES:
                   <Text style={styles.fieldLabel}>Question Image (optional)</Text>
                   {q.imageUri ? (
                     <View style={styles.imagePreviewContainer}>
-                      <Image
-                        source={{ uri: q.imageUri }}
+                      <QuestionImage
+                        imageUri={q.imageUri}
+                        imageRegion={q.imageRegion}
                         style={styles.imagePreview}
-                        contentFit="cover"
                       />
                       <TouchableOpacity
                         style={styles.removeImageButton}

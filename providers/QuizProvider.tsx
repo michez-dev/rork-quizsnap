@@ -1,10 +1,10 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import createContextHook from '@nkzw/create-context-hook';
 import { Share, Platform, Alert } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
-import { QuizSet, Question, Attempt, AnswerRecord, ParsedQuestion, QuizGroup } from '@/types/quiz';
+import { QuizSet, Question, Attempt, ParsedQuestion, QuizGroup } from '@/types/quiz';
 import { generateId } from '@/utils/generateId';
 
 const STORAGE_KEYS = {
@@ -92,6 +92,7 @@ export const [QuizProvider, useQuiz] = createContextHook(() => {
         section: q.section,
         pageRef: q.pageRef,
         imageUri: q.imageUri,
+        imageRegion: q.imageRegion,
       }));
 
       const updatedSets = [...quizSets, newQuizSet];
@@ -103,8 +104,8 @@ export const [QuizProvider, useQuiz] = createContextHook(() => {
       return { quizSet: newQuizSet, questions: newQuestions };
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['quizSets'] });
-      queryClient.invalidateQueries({ queryKey: ['questions'] });
+      void queryClient.invalidateQueries({ queryKey: ['quizSets'] });
+      void queryClient.invalidateQueries({ queryKey: ['questions'] });
     },
   });
 
@@ -116,7 +117,7 @@ export const [QuizProvider, useQuiz] = createContextHook(() => {
       await saveToStorage(STORAGE_KEYS.QUIZ_SETS, updatedSets);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['quizSets'] });
+      void queryClient.invalidateQueries({ queryKey: ['quizSets'] });
     },
   });
 
@@ -137,6 +138,7 @@ export const [QuizProvider, useQuiz] = createContextHook(() => {
         section: q.section,
         pageRef: q.pageRef,
         imageUri: q.imageUri,
+        imageRegion: q.imageRegion,
       }));
 
       const updatedQuestions = [...otherQuestions, ...newQuestions];
@@ -150,8 +152,8 @@ export const [QuizProvider, useQuiz] = createContextHook(() => {
       return { questions: newQuestions };
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['quizSets'] });
-      queryClient.invalidateQueries({ queryKey: ['questions'] });
+      void queryClient.invalidateQueries({ queryKey: ['quizSets'] });
+      void queryClient.invalidateQueries({ queryKey: ['questions'] });
     },
   });
 
@@ -181,8 +183,8 @@ export const [QuizProvider, useQuiz] = createContextHook(() => {
       return newQuizSet;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['quizSets'] });
-      queryClient.invalidateQueries({ queryKey: ['questions'] });
+      void queryClient.invalidateQueries({ queryKey: ['quizSets'] });
+      void queryClient.invalidateQueries({ queryKey: ['questions'] });
     },
   });
 
@@ -197,9 +199,9 @@ export const [QuizProvider, useQuiz] = createContextHook(() => {
       await saveToStorage(STORAGE_KEYS.ATTEMPTS, updatedAttempts);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['quizSets'] });
-      queryClient.invalidateQueries({ queryKey: ['questions'] });
-      queryClient.invalidateQueries({ queryKey: ['attempts'] });
+      void queryClient.invalidateQueries({ queryKey: ['quizSets'] });
+      void queryClient.invalidateQueries({ queryKey: ['questions'] });
+      void queryClient.invalidateQueries({ queryKey: ['attempts'] });
     },
   });
 
@@ -210,7 +212,7 @@ export const [QuizProvider, useQuiz] = createContextHook(() => {
       return attempt;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['attempts'] });
+      void queryClient.invalidateQueries({ queryKey: ['attempts'] });
     },
   });
 
@@ -226,9 +228,9 @@ export const [QuizProvider, useQuiz] = createContextHook(() => {
       await saveToStorage(STORAGE_KEYS.ATTEMPTS, updatedAttempts);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['quizSets'] });
-      queryClient.invalidateQueries({ queryKey: ['questions'] });
-      queryClient.invalidateQueries({ queryKey: ['attempts'] });
+      void queryClient.invalidateQueries({ queryKey: ['quizSets'] });
+      void queryClient.invalidateQueries({ queryKey: ['questions'] });
+      void queryClient.invalidateQueries({ queryKey: ['attempts'] });
     },
   });
 
@@ -265,9 +267,9 @@ export const [QuizProvider, useQuiz] = createContextHook(() => {
       return mergedSet;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['quizSets'] });
-      queryClient.invalidateQueries({ queryKey: ['questions'] });
-      queryClient.invalidateQueries({ queryKey: ['attempts'] });
+      void queryClient.invalidateQueries({ queryKey: ['quizSets'] });
+      void queryClient.invalidateQueries({ queryKey: ['questions'] });
+      void queryClient.invalidateQueries({ queryKey: ['attempts'] });
     },
   });
 
@@ -284,7 +286,7 @@ export const [QuizProvider, useQuiz] = createContextHook(() => {
       return group;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['quizGroups'] });
+      void queryClient.invalidateQueries({ queryKey: ['quizGroups'] });
     },
   });
 
@@ -294,7 +296,7 @@ export const [QuizProvider, useQuiz] = createContextHook(() => {
       await saveToStorage(STORAGE_KEYS.GROUPS, updated);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['quizGroups'] });
+      void queryClient.invalidateQueries({ queryKey: ['quizGroups'] });
     },
   });
 
@@ -306,8 +308,8 @@ export const [QuizProvider, useQuiz] = createContextHook(() => {
       await saveToStorage(STORAGE_KEYS.QUIZ_SETS, updatedSets);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['quizGroups'] });
-      queryClient.invalidateQueries({ queryKey: ['quizSets'] });
+      void queryClient.invalidateQueries({ queryKey: ['quizGroups'] });
+      void queryClient.invalidateQueries({ queryKey: ['quizSets'] });
     },
   });
 
@@ -319,7 +321,7 @@ export const [QuizProvider, useQuiz] = createContextHook(() => {
       await saveToStorage(STORAGE_KEYS.QUIZ_SETS, updatedSets);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['quizSets'] });
+      void queryClient.invalidateQueries({ queryKey: ['quizSets'] });
     },
   });
 
@@ -332,7 +334,7 @@ export const [QuizProvider, useQuiz] = createContextHook(() => {
       await saveToStorage(STORAGE_KEYS.QUIZ_SETS, updatedSets);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['quizSets'] });
+      void queryClient.invalidateQueries({ queryKey: ['quizSets'] });
     },
   });
 
@@ -346,10 +348,10 @@ export const [QuizProvider, useQuiz] = createContextHook(() => {
       ]);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['quizSets'] });
-      queryClient.invalidateQueries({ queryKey: ['questions'] });
-      queryClient.invalidateQueries({ queryKey: ['attempts'] });
-      queryClient.invalidateQueries({ queryKey: ['quizGroups'] });
+      void queryClient.invalidateQueries({ queryKey: ['quizSets'] });
+      void queryClient.invalidateQueries({ queryKey: ['questions'] });
+      void queryClient.invalidateQueries({ queryKey: ['attempts'] });
+      void queryClient.invalidateQueries({ queryKey: ['quizGroups'] });
     },
   });
 
@@ -422,8 +424,6 @@ export const [QuizProvider, useQuiz] = createContextHook(() => {
       Alert.alert('Error', 'Could not generate share data for this quiz.');
       return;
     }
-    const sets = quizSets.filter(s => quizSetIds.includes(s.id));
-    const title = sets.length === 1 ? sets[0].title : `${sets.length} Quizzes`;
     try {
       if (Platform.OS === 'web') {
         await Clipboard.setStringAsync(data);
@@ -445,7 +445,7 @@ export const [QuizProvider, useQuiz] = createContextHook(() => {
         Alert.alert('Error', 'Could not share or copy the quiz data.');
       }
     }
-  }, [exportQuizData, quizSets]);
+  }, [exportQuizData]);
 
   const importQuizSetsMutation = useMutation({
     mutationFn: async (shareString: string) => {
@@ -537,14 +537,14 @@ export const [QuizProvider, useQuiz] = createContextHook(() => {
       return newSets;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['quizSets'] });
-      queryClient.invalidateQueries({ queryKey: ['questions'] });
+      void queryClient.invalidateQueries({ queryKey: ['quizSets'] });
+      void queryClient.invalidateQueries({ queryKey: ['questions'] });
     },
   });
 
   const isLoading = quizSetsQuery.isLoading || questionsQuery.isLoading || attemptsQuery.isLoading || groupsQuery.isLoading;
 
-  return {
+  return useMemo(() => ({
     quizSets,
     allQuestions,
     allAttempts,
@@ -578,5 +578,39 @@ export const [QuizProvider, useQuiz] = createContextHook(() => {
     deleteGroup: deleteGroupMutation.mutateAsync,
     moveQuizToGroup: moveQuizToGroupMutation.mutateAsync,
     moveMultipleQuizzesToGroup: moveMultipleQuizzesToGroupMutation.mutateAsync,
-  };
+  }), [
+    quizSets,
+    allQuestions,
+    allAttempts,
+    quizGroups,
+    isLoading,
+    pendingQuestions,
+    pendingTitle,
+    pendingSource,
+    setPendingQuestions,
+    setPendingTitle,
+    setPendingSource,
+    createQuizSetMutation.mutateAsync,
+    createQuizSetMutation.isPending,
+    updateQuizSetMutation.mutateAsync,
+    deleteQuizSetMutation.mutateAsync,
+    deleteQuizSetMutation.isPending,
+    saveAttemptMutation.mutateAsync,
+    clearAllDataMutation.mutateAsync,
+    getQuestionsForSet,
+    getAttemptsForSet,
+    getQuizSetById,
+    updateQuestionsForSetMutation.mutateAsync,
+    duplicateQuizSetMutation.mutateAsync,
+    deleteMultipleQuizSetsMutation.mutateAsync,
+    mergeQuizSetsMutation.mutateAsync,
+    shareQuizSets,
+    importQuizSetsMutation.mutateAsync,
+    importQuizSetsMutation.isPending,
+    createGroupMutation.mutateAsync,
+    updateGroupMutation.mutateAsync,
+    deleteGroupMutation.mutateAsync,
+    moveQuizToGroupMutation.mutateAsync,
+    moveMultipleQuizzesToGroupMutation.mutateAsync,
+  ]);
 });

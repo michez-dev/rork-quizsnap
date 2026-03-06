@@ -9,12 +9,11 @@ import {
   Animated,
   Alert,
   ActivityIndicator,
-  Platform,
 } from 'react-native';
 import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
-import { Image } from 'expo-image';
+import QuestionImage from '@/components/QuestionImage';
 import {
   Check,
   AlertTriangle,
@@ -63,6 +62,7 @@ export default function EditQuizScreen() {
       section: q.section,
       pageRef: q.pageRef,
       imageUri: q.imageUri,
+      imageRegion: q.imageRegion,
     }))
   );
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
@@ -76,7 +76,7 @@ export default function EditQuizScreen() {
       duration: 300,
       useNativeDriver: true,
     }).start();
-  }, []);
+  }, [fadeAnim]);
 
   const unverifiedCount = questions.filter(q => !q.verified).length;
 
@@ -89,7 +89,7 @@ export default function EditQuizScreen() {
   }, []);
 
   const handleDeleteQuestion = useCallback((index: number) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     Alert.alert(
       'Remove Question',
       'Are you sure you want to remove this question?',
@@ -105,7 +105,7 @@ export default function EditQuizScreen() {
   }, []);
 
   const handleAddQuestion = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const newQ: ParsedQuestion = {
       text: '',
       options: ['', '', '', ''],
@@ -144,7 +144,7 @@ export default function EditQuizScreen() {
       }
       return updated;
     });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }, []);
 
   const handleChangeType = useCallback((qIndex: number, newType: QuestionType) => {
@@ -180,7 +180,7 @@ export default function EditQuizScreen() {
       }
       return updated;
     });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }, []);
 
   const handleUpdateOption = useCallback((qIndex: number, optIndex: number, value: string) => {
@@ -246,8 +246,8 @@ export default function EditQuizScreen() {
       });
 
       if (!result.canceled && result.assets[0]) {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        handleUpdateQuestion(qIndex, { imageUri: result.assets[0].uri });
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        handleUpdateQuestion(qIndex, { imageUri: result.assets[0].uri, imageRegion: undefined });
       }
     } catch (e) {
       console.log('Image picker error:', e);
@@ -256,8 +256,8 @@ export default function EditQuizScreen() {
   }, [handleUpdateQuestion]);
 
   const handleRemoveImage = useCallback((qIndex: number) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    handleUpdateQuestion(qIndex, { imageUri: undefined });
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    handleUpdateQuestion(qIndex, { imageUri: undefined, imageRegion: undefined });
   }, [handleUpdateQuestion]);
 
   const handleAiFormatMath = useCallback(async (qIndex: number) => {
@@ -265,7 +265,7 @@ export default function EditQuizScreen() {
     if (!q) return;
 
     setConvertingIndex(qIndex);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     const LATEX_PROMPT = `Convert any mathematical expressions in the following text to LaTeX notation wrapped in $...$ delimiters for inline math.
 
@@ -322,7 +322,7 @@ RULES:
         correctAnswer: newCorrectAnswer,
       });
 
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e) {
       console.log('AI LaTeX conversion error:', e);
       Alert.alert('Conversion Failed', 'Could not convert math expressions. Please try again.');
@@ -342,7 +342,7 @@ RULES:
     setIsSaving(true);
     try {
       await updateQuestionsForSet({ quizSetId, questions });
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.back();
     } catch (e) {
       console.log('Error saving quiz:', e);
@@ -482,10 +482,10 @@ RULES:
                   <Text style={styles.fieldLabel}>Question Image (optional)</Text>
                   {q.imageUri ? (
                     <View style={styles.imagePreviewContainer}>
-                      <Image
-                        source={{ uri: q.imageUri }}
+                      <QuestionImage
+                        imageUri={q.imageUri}
+                        imageRegion={q.imageRegion}
                         style={styles.imagePreview}
-                        contentFit="cover"
                       />
                       <TouchableOpacity
                         style={styles.removeImageButton}

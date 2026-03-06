@@ -11,7 +11,7 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
-import { Image } from 'expo-image';
+import QuestionImage from '@/components/QuestionImage';
 import { X, ChevronRight, Check, XCircle, Clock } from 'lucide-react-native';
 import { useQuiz } from '@/providers/QuizProvider';
 import { Question, AnswerRecord, QuizMode, ScoringConfig } from '@/types/quiz';
@@ -70,9 +70,11 @@ export default function QuizPlayerScreen() {
   const pointsPerCorrect = parseFloat(params.pointsPerCorrect ?? '1');
   const penaltyPerWrong = parseFloat(params.penaltyPerWrong ?? '0');
 
-  const scoringConfig: ScoringConfig | undefined = scoringEnabled
-    ? { enabled: true, pointsPerCorrect, penaltyPerWrong }
-    : undefined;
+  const scoringConfig: ScoringConfig | undefined = useMemo(() => (
+    scoringEnabled
+      ? { enabled: true, pointsPerCorrect, penaltyPerWrong }
+      : undefined
+  ), [penaltyPerWrong, pointsPerCorrect, scoringEnabled]);
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<string[]>([]);
@@ -85,6 +87,7 @@ export default function QuizPlayerScreen() {
   const slideAnim = useRef(new Animated.Value(0)).current;
   const feedbackAnim = useRef(new Animated.Value(0)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
+  const handleFinishRef = useRef<() => Promise<void>>(async () => {});
 
   const currentQuestion = questions[currentIndex];
   const quizHasMultiSelect = useMemo(() => questions.some(q => q.type === 'multiple-select'), [questions]);
@@ -96,7 +99,7 @@ export default function QuizPlayerScreen() {
       duration: 300,
       useNativeDriver: false,
     }).start();
-  }, [currentIndex, questions.length]);
+  }, [currentIndex, progressAnim, questions.length]);
 
   useEffect(() => {
     if (!timerEnabled) return;
@@ -104,7 +107,7 @@ export default function QuizPlayerScreen() {
       setTimeRemaining(prev => {
         if (prev <= 1) {
           clearInterval(interval);
-          handleFinish();
+          void handleFinishRef.current();
           return 0;
         }
         return prev - 1;
@@ -134,10 +137,10 @@ export default function QuizPlayerScreen() {
         }
         return [...prev, answer];
       });
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } else {
       setSelectedAnswers([answer]);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
       if (mode === 'study') {
         setShowFeedback(true);
@@ -150,9 +153,9 @@ export default function QuizPlayerScreen() {
 
         const isCorrect = checkCorrectSingle(answer, currentQuestion);
         if (isCorrect) {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         } else {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         }
       }
     }
@@ -173,9 +176,9 @@ export default function QuizPlayerScreen() {
 
       const isCorrect = checkCorrectMulti(selectedAnswers, currentQuestion);
       if (isCorrect) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } else {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
     }
   }, [selectedAnswers, showFeedback, mode, currentQuestion, feedbackAnim]);
@@ -229,7 +232,7 @@ export default function QuizPlayerScreen() {
 
     setAnswers(prev => [...prev, record]);
     return record;
-  }, [selectedAnswers, currentQuestion, questionStartTime, isMultiSelect]);
+  }, [currentQuestion, isMultiSelect, penaltyPerWrong, pointsPerCorrect, questionStartTime, scoringEnabled, selectedAnswers]);
 
   const handleNext = useCallback(() => {
     recordAnswer();
@@ -242,9 +245,9 @@ export default function QuizPlayerScreen() {
       setQuestionStartTime(Date.now());
       animateSlide();
     } else {
-      handleFinish();
+      void handleFinishRef.current();
     }
-  }, [currentIndex, questions.length, recordAnswer, animateSlide, feedbackAnim]);
+  }, [animateSlide, currentIndex, feedbackAnim, questions.length, recordAnswer]);
 
   const handleFinish = useCallback(async () => {
     const finalAnswers = [...answers];
@@ -304,7 +307,11 @@ export default function QuizPlayerScreen() {
     }
 
     router.replace({ pathname: '/results' as any, params: { attemptId: attempt.id } });
-  }, [answers, selectedAnswers, currentQuestion, questionStartTime, params.quizSetId, quizSet, startTime, questions.length, mode, saveAttempt, router, isMultiSelect]);
+  }, [answers, currentQuestion, isMultiSelect, mode, params.quizSetId, penaltyPerWrong, pointsPerCorrect, practiceMode, questionStartTime, questions.length, quizSet, router, saveAttempt, scoringConfig, scoringEnabled, selectedAnswers, startTime]);
+
+  useEffect(() => {
+    handleFinishRef.current = handleFinish;
+  }, [handleFinish]);
 
   const handleQuit = useCallback(() => {
     Alert.alert(
@@ -391,8 +398,9 @@ export default function QuizPlayerScreen() {
 
           {currentQuestion.imageUri ? (
             <View style={styles.questionImageContainer}>
-              <Image
-                source={{ uri: currentQuestion.imageUri }}
+              <QuestionImage
+                imageUri={currentQuestion.imageUri}
+                imageRegion={currentQuestion.imageRegion}
                 style={styles.questionImage}
                 contentFit="contain"
               />

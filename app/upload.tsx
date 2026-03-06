@@ -18,6 +18,7 @@ import * as Haptics from 'expo-haptics';
 import { FileUp, Type, FileText, ArrowRight, AlertTriangle, Sparkles, Brain, Camera, Image as ImageIcon, Link } from 'lucide-react-native';
 import { useQuiz } from '@/providers/QuizProvider';
 import { parseTextToQuestions } from '@/utils/text-parser';
+import { extractQuizFromImages } from '@/utils/quiz-ai-extraction';
 import { generateObject } from '@rork-ai/toolkit-sdk';
 import { z } from 'zod';
 import Colors from '@/constants/colors';
@@ -127,7 +128,7 @@ export default function UploadScreen() {
       duration: 300,
       useNativeDriver: true,
     }).start();
-  }, []);
+  }, [fadeAnim]);
 
   const AI_PROMPT = `You are a precise quiz extraction tool. Extract all questions, their SEPARATE answer options, and correct answers from this document.
 
@@ -224,41 +225,49 @@ GENERAL RULES:
         return;
       }
 
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       setIsAiParsing(true);
       const imageCount = validAssets.length;
       setAiProgress(`AI is analyzing ${imageCount} image${imageCount > 1 ? 's' : ''}...`);
 
-      const imageContentParts = validAssets.map(asset => {
-        const mimeType = asset.mimeType || 'image/jpeg';
-        const dataUri = `data:${mimeType};base64,${asset.base64}`;
-        console.log('Adding image to AI request, mime:', mimeType, 'base64 length:', asset.base64!.length);
-        return { type: 'image' as const, image: dataUri };
-      });
-
       try {
-        const parsed = await generateObject({
-          messages: [
-            {
-              role: 'user' as const,
-              content: [
-                { type: 'text' as const, text: `${AI_PROMPT}\n\nIMPORTANT: You are receiving ${imageCount} image(s). Extract ALL questions from ALL images and combine them into a single quiz. Process each image in order.` },
-                ...imageContentParts,
-              ],
-            },
-          ],
-          schema: parsedQuestionSchema,
+        const extracted = await extractQuizFromImages({
+          assets: validAssets.map(asset => ({
+            uri: asset.uri,
+            base64: asset.base64 ?? undefined,
+            mimeType: asset.mimeType || 'image/jpeg',
+            width: asset.width,
+            height: asset.height,
+          })),
+          fallbackTitle: title || 'Image Quiz',
         });
 
-        console.log('AI image parse result:', JSON.stringify(parsed, null, 2));
+        console.log('AI image extraction result:', {
+          title: extracted.title,
+          questionCount: extracted.questions.length,
+          warningCount: extracted.warnings.length,
+        });
 
-        if (processAiResult(parsed, title || 'Image Quiz')) {
-          setPendingSource(`${imageCount} photo${imageCount > 1 ? 's' : ''} upload`);
+        if (extracted.questions.length === 0) {
+          setWarnings(extracted.warnings);
           setIsAiParsing(false);
           setAiProgress('');
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          router.push('/preview-editor' as any);
+          Alert.alert(
+            'No Questions Found',
+            'The AI could not detect any questions in the selected images. Try a clearer screenshot or use the paste option.',
+            [{ text: 'OK', style: 'cancel' }]
+          );
+          return;
         }
+
+        setWarnings(extracted.warnings);
+        setPendingQuestions(extracted.questions);
+        setPendingTitle(extracted.title);
+        setPendingSource(`${imageCount} photo${imageCount > 1 ? 's' : ''} upload`);
+        setIsAiParsing(false);
+        setAiProgress('');
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        router.push('/preview-editor' as any);
       } catch (aiError) {
         console.log('AI image parsing error:', aiError);
         setIsAiParsing(false);
@@ -275,7 +284,7 @@ GENERAL RULES:
       setAiProgress('');
       Alert.alert('Error', 'Could not pick image. Please try again.');
     }
-  }, [title, setPendingSource, processAiResult, router]);
+  }, [router, setPendingQuestions, setPendingSource, setPendingTitle, title]);
 
   const handleAiParsePdf = useCallback(async () => {
     try {
@@ -287,7 +296,7 @@ GENERAL RULES:
       if (result.canceled) return;
 
       const file = result.assets[0];
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       const fileName = file.name.replace(/\.\w+$/, '');
       setTitle(fileName);
       setPendingSource(file.name);
@@ -349,7 +358,7 @@ GENERAL RULES:
         if (processAiResult(parsed, fileName)) {
           setIsAiParsing(false);
           setAiProgress('');
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           router.push('/preview-editor' as any);
         }
       } catch (aiError) {
@@ -371,7 +380,7 @@ GENERAL RULES:
       setAiProgress('');
       Alert.alert('Error', 'Could not pick document. Please try again.');
     }
-  }, [setPendingSource, setPendingQuestions, setPendingTitle, router, processAiResult]);
+  }, [AI_PROMPT, processAiResult, router, setPendingSource]);
 
   const handleParseText = useCallback(() => {
     if (!pastedText.trim()) {
@@ -380,7 +389,7 @@ GENERAL RULES:
     }
 
     setIsParsing(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     setTimeout(() => {
       const result = parseTextToQuestions(pastedText);
@@ -414,10 +423,10 @@ GENERAL RULES:
       Alert.alert('Invalid Format', 'This doesn\'t look like a shared quiz code. Make sure you copied the entire message.');
       return;
     }
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
       const result = await importQuizSets(trimmed);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       const count = result.length;
       Alert.alert(
         'Imported!',
@@ -438,7 +447,7 @@ GENERAL RULES:
 
     setIsAiParsing(true);
     setAiProgress('AI is extracting questions...');
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
       const parsed = await generateObject({
@@ -457,7 +466,7 @@ GENERAL RULES:
         setPendingSource(title ? `${title}.txt` : 'Pasted text');
         setIsAiParsing(false);
         setAiProgress('');
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         router.push('/preview-editor' as any);
       }
     } catch (e) {
@@ -466,7 +475,7 @@ GENERAL RULES:
       setAiProgress('');
       Alert.alert('AI Parsing Failed', 'Could not extract questions. Try the standard parser.');
     }
-  }, [pastedText, title, setPendingQuestions, setPendingTitle, setPendingSource, router, processAiResult]);
+  }, [AI_PROMPT, pastedText, title, setPendingSource, router, processAiResult]);
 
   if (isAiParsing) {
     return (
@@ -520,7 +529,7 @@ GENERAL RULES:
 
             <TouchableOpacity
               style={styles.methodCard}
-              onPress={() => { setMethod('image'); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              onPress={() => { setMethod('image'); void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
               activeOpacity={0.7}
               testID="method-image"
             >
@@ -541,7 +550,7 @@ GENERAL RULES:
 
             <TouchableOpacity
               style={styles.methodCard}
-              onPress={() => { setMethod('paste'); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              onPress={() => { setMethod('paste'); void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
               activeOpacity={0.7}
               testID="method-paste"
             >
@@ -556,7 +565,7 @@ GENERAL RULES:
 
             <TouchableOpacity
               style={styles.methodCard}
-              onPress={() => { setMethod('shared'); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              onPress={() => { setMethod('shared'); void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
               activeOpacity={0.7}
               testID="method-shared"
             >

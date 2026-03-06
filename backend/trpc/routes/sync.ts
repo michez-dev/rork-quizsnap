@@ -12,6 +12,16 @@ const quizSetSchema = z.object({
   groupId: z.string().optional(),
 });
 
+const imageRegionSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  width: z.number(),
+  height: z.number(),
+  sourceWidth: z.number(),
+  sourceHeight: z.number(),
+  description: z.string().optional(),
+});
+
 const questionSchema = z.object({
   id: z.string(),
   quizSetId: z.string(),
@@ -23,6 +33,7 @@ const questionSchema = z.object({
   verified: z.boolean(),
   section: z.string().optional(),
   imageUri: z.string().optional(),
+  imageRegion: imageRegionSchema.optional(),
 });
 
 const attemptSchema = z.object({

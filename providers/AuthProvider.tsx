@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
@@ -86,7 +86,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
 
   useEffect(() => {
-    (async () => {
+    void (async () => {
       try {
         const storedToken = await getStoredToken();
         const storedUser = await getStoredUser();
@@ -148,7 +148,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       await removeToken();
       await removeUser();
       setLastSyncedAt(null);
-      queryClient.invalidateQueries();
+      void queryClient.invalidateQueries();
       console.log('Logged out');
     }
   }, [token, queryClient]);
@@ -177,6 +177,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         verified: q.verified,
         section: q.section,
         imageUri: q.imageUri && q.imageUri.length < 5000 ? q.imageUri : undefined,
+        imageRegion: q.imageRegion,
       }));
 
       const localData = {
@@ -232,17 +233,22 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       });
 
       const localQuestionsRaw = await AsyncStorage.getItem('pdf_quiz_questions');
-      const localQuestions: { id: string; imageUri?: string }[] = localQuestionsRaw ? JSON.parse(localQuestionsRaw) : [];
-      const localImageMap = new Map<string, string>();
+      const localQuestions: { id: string; imageUri?: string; imageRegion?: any }[] = localQuestionsRaw ? JSON.parse(localQuestionsRaw) : [];
+      const localImageMap = new Map<string, { imageUri?: string; imageRegion?: any }>();
       for (const q of localQuestions) {
-        if (q.imageUri) {
-          localImageMap.set(q.id, q.imageUri);
+        if (q.imageUri || q.imageRegion) {
+          localImageMap.set(q.id, { imageUri: q.imageUri, imageRegion: q.imageRegion });
         }
       }
 
       const mergedQuestions = cloudData.questions.map((cq: any) => {
-        if (!cq.imageUri && localImageMap.has(cq.id)) {
-          return { ...cq, imageUri: localImageMap.get(cq.id) };
+        if ((!cq.imageUri || !cq.imageRegion) && localImageMap.has(cq.id)) {
+          const localImage = localImageMap.get(cq.id);
+          return {
+            ...cq,
+            imageUri: cq.imageUri ?? localImage?.imageUri,
+            imageRegion: cq.imageRegion ?? localImage?.imageRegion,
+          };
         }
         return cq;
       });
@@ -253,10 +259,10 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       await AsyncStorage.setItem('pdf_quiz_groups', JSON.stringify(cloudData.groups));
 
       setLastSyncedAt(cloudData.lastSyncedAt);
-      queryClient.invalidateQueries({ queryKey: ['quizSets'] });
-      queryClient.invalidateQueries({ queryKey: ['questions'] });
-      queryClient.invalidateQueries({ queryKey: ['attempts'] });
-      queryClient.invalidateQueries({ queryKey: ['quizGroups'] });
+      void queryClient.invalidateQueries({ queryKey: ['quizSets'] });
+      void queryClient.invalidateQueries({ queryKey: ['questions'] });
+      void queryClient.invalidateQueries({ queryKey: ['attempts'] });
+      void queryClient.invalidateQueries({ queryKey: ['quizGroups'] });
       console.log('syncFromCloud: done, preserved', localImageMap.size, 'local images');
     } catch (e: any) {
       console.log('syncFromCloud error:', e);
@@ -288,10 +294,10 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       const groupsData = await AsyncStorage.getItem('pdf_quiz_groups');
 
       const rawQuestions = questionsData ? JSON.parse(questionsData) : [];
-      const localImageMap = new Map<string, string>();
+      const localImageMap = new Map<string, { imageUri?: string; imageRegion?: any }>();
       const cleanedQuestions = rawQuestions.map((q: any) => {
-        if (q.imageUri && q.imageUri.length >= 5000) {
-          localImageMap.set(q.id, q.imageUri);
+        if ((q.imageUri && q.imageUri.length >= 5000) || q.imageRegion) {
+          localImageMap.set(q.id, { imageUri: q.imageUri, imageRegion: q.imageRegion });
         }
         return {
           id: q.id,
@@ -304,6 +310,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
           verified: q.verified,
           section: q.section,
           imageUri: q.imageUri && q.imageUri.length < 5000 ? q.imageUri : undefined,
+          imageRegion: q.imageRegion,
         };
       });
 
@@ -323,8 +330,13 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       const merged = await trpcClient.sync.mergeLocal.mutate(localData);
 
       const mergedQuestions = merged.questions.map((mq: any) => {
-        if (!mq.imageUri && localImageMap.has(mq.id)) {
-          return { ...mq, imageUri: localImageMap.get(mq.id) };
+        if ((!mq.imageUri || !mq.imageRegion) && localImageMap.has(mq.id)) {
+          const localImage = localImageMap.get(mq.id);
+          return {
+            ...mq,
+            imageUri: mq.imageUri ?? localImage?.imageUri,
+            imageRegion: mq.imageRegion ?? localImage?.imageRegion,
+          };
         }
         return mq;
       });
@@ -335,10 +347,10 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       await AsyncStorage.setItem('pdf_quiz_groups', JSON.stringify(merged.groups));
 
       setLastSyncedAt(merged.lastSyncedAt);
-      queryClient.invalidateQueries({ queryKey: ['quizSets'] });
-      queryClient.invalidateQueries({ queryKey: ['questions'] });
-      queryClient.invalidateQueries({ queryKey: ['attempts'] });
-      queryClient.invalidateQueries({ queryKey: ['quizGroups'] });
+      void queryClient.invalidateQueries({ queryKey: ['quizSets'] });
+      void queryClient.invalidateQueries({ queryKey: ['questions'] });
+      void queryClient.invalidateQueries({ queryKey: ['attempts'] });
+      void queryClient.invalidateQueries({ queryKey: ['quizGroups'] });
       console.log('mergeAndSync: done, merged sets:', merged.quizSets.length, 'preserved images:', localImageMap.size);
     } catch (e: any) {
       console.log('mergeAndSync error:', e);
@@ -360,7 +372,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     }
   }, [token, user, queryClient]);
 
-  return {
+  return useMemo(() => ({
     user,
     token,
     isAuthenticated: !!user && !!token,
@@ -377,5 +389,21 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     syncToCloud,
     syncFromCloud,
     mergeAndSync,
-  };
+  }), [
+    user,
+    token,
+    isInitialized,
+    isSyncing,
+    lastSyncedAt,
+    registerMutation.mutateAsync,
+    registerMutation.isPending,
+    registerMutation.error?.message,
+    loginMutation.mutateAsync,
+    loginMutation.isPending,
+    loginMutation.error?.message,
+    logout,
+    syncToCloud,
+    syncFromCloud,
+    mergeAndSync,
+  ]);
 });

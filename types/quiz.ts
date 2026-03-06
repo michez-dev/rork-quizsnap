@@ -18,6 +18,16 @@ export interface QuizSet {
   groupId?: string;
 }
 
+export interface QuestionImageRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  sourceWidth: number;
+  sourceHeight: number;
+  description?: string;
+}
+
 export interface Question {
   id: string;
   quizSetId: string;
@@ -29,6 +39,7 @@ export interface Question {
   verified: boolean;
   section?: string;
   imageUri?: string;
+  imageRegion?: QuestionImageRegion;
 }
 
 export interface ScoringConfig {
@@ -79,4 +90,5 @@ export interface ParsedQuestion {
   section?: string;
   pageRef?: number;
   imageUri?: string;
+  imageRegion?: QuestionImageRegion;
 }

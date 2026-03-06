@@ -22,18 +22,15 @@ import { z } from 'zod';
 import { useRouter } from 'expo-router';
 import { useQuiz } from '@/providers/QuizProvider';
 import { parseTextToQuestions } from '@/utils/text-parser';
+import { extractQuizFromImages } from '@/utils/quiz-ai-extraction';
 import Colors from '@/constants/colors';
 
 interface AttachedImage {
   uri: string;
   base64?: string;
   mimeType: string;
-}
-
-interface ImageMapEntry {
-  questionNumber: number;
-  questionText: string;
-  imageDescription: string;
+  width?: number;
+  height?: number;
 }
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -48,16 +45,20 @@ export default function AIAssistantScreen() {
   const inputRef = useRef<TextInput>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const lastSentImagesRef = useRef<AttachedImage[]>([]);
-  const imageMapRef = useRef<ImageMapEntry[]>([]);
+  const lastSentPromptRef = useRef('');
 
-  const SYSTEM_PROMPT = `You are a quiz extraction and creation assistant. Your PRIMARY job is to accurately extract quiz text from screenshots and create quizzes.
+  const SYSTEM_PROMPT = `You are a quiz extraction and creation assistant.
 
-When the user asks you to CREATE or GENERATE a quiz (e.g. "create a 10-question quiz about X", "make a quiz on Y"), you MUST:
-1. Generate the questions yourself with 4 answer options (A, B, C, D) each
-2. Include the correct answer for each question
-3. Call the createQuizFromText tool with the generated quiz text
+When the user message includes attached screenshots or photos of quiz questions, you MUST call extractQuizFromImages immediately.
+- Do not manually transcribe the screenshot yourself.
+- Do not ask follow-up questions about symbols or markers.
+- The tool handles question extraction, option separation, correct-answer detection, and image cropping.
 
-FORMAT for quiz text (this is critical - the parser needs this exact format):
+When the user asks you to create or generate a brand new quiz without screenshots, you MUST generate the quiz and call createQuizFromText.
+
+Use createQuizFromText only for text-based quiz generation or when the user directly provides quiz text.
+
+For generated quiz text, always use this exact format:
 1. Question text here
 A) First option
 B) Second option
@@ -72,82 +73,64 @@ C) Option
 D) Option
 Answer: A
 
-CRITICAL RULES FOR TEXT EXTRACTION FROM SCREENSHOTS:
-- Read EVERY question EXACTLY as written in the screenshot. Do NOT paraphrase, rephrase, or reword anything.
-- Copy the text character by character from the image. Accuracy is paramount.
-
-SEPARATING QUESTIONS FROM OPTIONS (MOST IMPORTANT):
-- The question text goes on the numbered line (e.g. "1. What is the capital?"). It must contain ONLY the question stem/prompt.
-- NEVER put answer options inside the question text line. Options go on separate A), B), C), D) lines.
-- If options in the screenshot are separated by arrows (\u21d2, \u2192), dashes (-), bullets, or line breaks, each one becomes a SEPARATE lettered option line.
-- Example: If screenshot shows "Il prodotto restituisce: \u21d2 Uno scalare \u21d2 Un tensore - Una matrice - Un tensore di ordine uno"
-  Then output:
-  1. Il prodotto restituisce:
-  A) Uno scalare
-  B) Un tensore
-  C) Una matrice
-  D) Un tensore di ordine uno
-
-DETECTING CORRECT ANSWERS:
-- Look for visual indicators: checkmarks (\u2713), crosses (X, \u2717), highlighting, circled answers, underlined text, bold text, arrows pointing to correct answer, colored backgrounds, or any other visual marking.
-- If an answer is marked/highlighted/checked/crossed/arrowed, that is the correct answer. Use its letter in the Answer line.
-- If the correct answer is not visually marked, try your best guess and note it in the output.
-
-OTHER RULES:
-- Always include the correct number of options (A, B, C, D or however many are shown)
-- Always include "Answer: X" line after each question
-- Number questions sequentially (1. 2. 3. etc.)
-- When you encounter ANY mathematical expressions, formulas, equations, symbols, or notation, you MUST write them using LaTeX notation with dollar sign delimiters ($...$)
-- Examples: "$x^2 + 3x - 5$", "$\\sqrt{x}$", "$\\frac{a}{b}$", "$\\int x \\, dx$", "$\\alpha$", "$x \\geq 5$", "$\\lim_{x \\to 0}$"
-- This applies to ALL math content in question text AND answer choices
-- If multiple screenshots are provided, process ALL of them. Extract questions from EACH screenshot.
-- Maintain sequential numbering across all screenshots.
-
-IMAGES IN QUESTIONS:
-If any questions contain images/diagrams/figures/graphs:
-1. Call markQuestionsWithImages to note which questions have images and describe what each image shows.
-2. Then call createQuizFromText with the quiz text and the list of question numbers that have images.
-The original screenshot will be attached to those questions so the user can reference the image.
-Do NOT try to extract or recreate the images. Just accurately note which questions have them.`;
+When math appears, write it in LaTeX with $...$ delimiters.
+When the user is just chatting and not asking to create a quiz, answer normally.`;
 
   const { messages, error, sendMessage, setMessages } = useRorkAgent({
     // @ts-expect-error system prompt passed through to transport body
     system: SYSTEM_PROMPT,
     tools: {
-      markQuestionsWithImages: createRorkTool({
-        description: 'Mark which questions in the screenshot have accompanying images/diagrams/figures. Call this BEFORE createQuizFromText if any questions contain visual content. The original screenshot will be attached to those questions.',
+      extractQuizFromImages: createRorkTool({
+        description: 'Extract a quiz directly from the currently attached screenshots or photos. Use this whenever the user sends quiz images.',
         zodSchema: z.object({
-          questionsWithImages: z.array(z.object({
-            questionNumber: z.number().describe('The question number (1-based) that has an image'),
-            imageDescription: z.string().describe('Brief description of what the image shows'),
-            sourceImageIndex: z.number().describe('Which screenshot (0-based) contains this image'),
-          })),
+          title: z.string().optional().describe('Optional short title for the extracted quiz'),
         }),
-        execute(toolInput) {
-          console.log('markQuestionsWithImages called:', JSON.stringify(toolInput, null, 2));
+        async execute(toolInput) {
+          const sourceImages = lastSentImagesRef.current;
+          console.log('extractQuizFromImages tool called:', {
+            imageCount: sourceImages.length,
+            title: toolInput.title,
+            prompt: lastSentPromptRef.current,
+          });
 
-          const imageMap: ImageMapEntry[] = toolInput.questionsWithImages.map(q => ({
-            questionNumber: q.questionNumber,
-            questionText: '',
-            imageDescription: q.imageDescription,
-          }));
-
-          imageMapRef.current = imageMap;
-          console.log('Image map created with', imageMap.length, 'entries');
-
-          if (imageMap.length === 0) {
-            return 'No images marked. Proceed with createQuizFromText.';
+          if (sourceImages.length === 0) {
+            return 'No screenshots are currently attached. Ask the user to attach quiz images and try again.';
           }
 
-          return `Marked ${imageMap.length} question(s) as having images. Now call createQuizFromText with questionsWithImages listing those question numbers.`;
+          const extraction = await extractQuizFromImages({
+            assets: sourceImages,
+            fallbackTitle: toolInput.title?.trim() || 'Image Quiz',
+            userHint: lastSentPromptRef.current,
+          });
+
+          if (extraction.questions.length === 0) {
+            return extraction.warnings[0] ?? 'I could not detect any quiz questions in the attached screenshots.';
+          }
+
+          setPendingQuestions(extraction.questions);
+          setPendingTitle(extraction.title);
+          setPendingSource(`AI Assistant (${sourceImages.length} image${sourceImages.length > 1 ? 's' : ''})`);
+
+          setTimeout(() => {
+            router.push('/preview-editor' as any);
+          }, 500);
+
+          const imageCount = extraction.questions.filter(question => Boolean(question.imageUri && question.imageRegion)).length;
+          const warnings = extraction.warnings.length > 0
+            ? `\nWarnings: ${extraction.warnings.join(', ')}`
+            : '';
+          const imageNote = imageCount > 0
+            ? `\n${imageCount} question image crop(s) were detected and attached.`
+            : '';
+
+          return `Successfully extracted ${extraction.questions.length} questions for "${extraction.title}". Redirecting to the preview editor where you can review and save them.${imageNote}${warnings}`;
         },
       }),
       createQuizFromText: createRorkTool({
-        description: 'Create a quiz from extracted text. Pass quiz text in numbered format with options and answers. Math expressions MUST use LaTeX with $...$ delimiters. If any questions have images, first call markQuestionsWithImages, then pass those question numbers in questionsWithImages.',
+        description: 'Create a quiz from provided or generated text. Pass quiz text in numbered format with options and answers. Math expressions must use LaTeX with $...$ delimiters.',
         zodSchema: z.object({
           title: z.string().describe('Title for the quiz set'),
-          quizText: z.string().describe('The quiz text in numbered format with options and answers. Must be EXACTLY as shown in the screenshot - do not rephrase.'),
-          questionsWithImages: z.array(z.number()).describe('Array of question numbers (1-based) that have images. Leave empty [] if no questions have images.').optional(),
+          quizText: z.string().describe('The quiz text in numbered format with options and answers.'),
         }),
         execute(toolInput) {
           console.log('createQuizFromText tool called:', toolInput.title);
@@ -159,38 +142,9 @@ Do NOT try to extract or recreate the images. Just accurately note which questio
             return 'Could not parse any questions from the text. Please provide questions in numbered format (1. Question text) with options (A) Option) and answers (Answer: A).';
           }
 
-          const questionsWithImages = toolInput.questionsWithImages ?? [];
-          let imagesAttached = 0;
-
-          const questionsWithAttachedImages = result.questions.map((q, index) => {
-            const qNum = index + 1;
-            if (questionsWithImages.includes(qNum)) {
-              const mapEntry = imageMapRef.current.find(m => m.questionNumber === qNum);
-              const sourceIdx = mapEntry ? (toolInput.questionsWithImages ?? []).indexOf(qNum) : 0;
-              const sourceImages = lastSentImagesRef.current;
-
-              let imageUri: string | undefined;
-              if (sourceImages.length > 0) {
-                const imgIdx = Math.min(sourceIdx, sourceImages.length - 1);
-                const img = sourceImages[imgIdx >= 0 ? imgIdx : 0];
-                if (img.base64) {
-                  imageUri = `data:${img.mimeType};base64,${img.base64}`;
-                  imagesAttached++;
-                } else if (img.uri) {
-                  imageUri = img.uri;
-                  imagesAttached++;
-                }
-              }
-              return { ...q, imageUri };
-            }
-            return q;
-          });
-
-          setPendingQuestions(questionsWithAttachedImages);
+          setPendingQuestions(result.questions);
           setPendingTitle(toolInput.title);
           setPendingSource('AI Assistant');
-
-          imageMapRef.current = [];
 
           setTimeout(() => {
             router.push('/preview-editor' as any);
@@ -199,11 +153,8 @@ Do NOT try to extract or recreate the images. Just accurately note which questio
           const warnings = result.warnings.length > 0
             ? `\nWarnings: ${result.warnings.join(', ')}`
             : '';
-          const imageNote = imagesAttached > 0
-            ? `\n${imagesAttached} question(s) have the original screenshot attached for image reference.`
-            : '';
 
-          return `Successfully parsed ${result.questions.length} questions for "${toolInput.title}". Redirecting to the preview editor where you can review and save them.${imageNote}${warnings}`;
+          return `Successfully parsed ${result.questions.length} questions for "${toolInput.title}". Redirecting to the preview editor where you can review and save them.${warnings}`;
         },
       }),
     },
@@ -226,7 +177,7 @@ Do NOT try to extract or recreate the images. Just accurately note which questio
     );
     loop.start();
     return () => loop.stop();
-  }, []);
+  }, [pulseAnim]);
 
   const pickImage = useCallback(async (source: 'camera' | 'library') => {
     setIsPickingImage(true);
@@ -253,11 +204,13 @@ Do NOT try to extract or recreate the images. Just accurately note which questio
       }
 
       if (!result.canceled && result.assets.length > 0) {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         const newImages: AttachedImage[] = result.assets.map(asset => ({
           uri: asset.uri,
           base64: asset.base64 ?? undefined,
           mimeType: asset.mimeType ?? 'image/jpeg',
+          width: asset.width,
+          height: asset.height,
         }));
         setAttachedImages(prev => [...prev, ...newImages].slice(0, 4));
       }
@@ -268,7 +221,7 @@ Do NOT try to extract or recreate the images. Just accurately note which questio
   }, []);
 
   const removeImage = useCallback((index: number) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setAttachedImages(prev => prev.filter((_, i) => i !== index));
   }, []);
 
@@ -276,7 +229,7 @@ Do NOT try to extract or recreate the images. Just accurately note which questio
     const text = input.trim();
     if (!text && attachedImages.length === 0) return;
 
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     const validImages = attachedImages.filter(img => img.base64);
     const files = validImages.map(img => ({
@@ -287,10 +240,10 @@ Do NOT try to extract or recreate the images. Just accurately note which questio
 
     if (validImages.length > 0) {
       lastSentImagesRef.current = validImages;
-      imageMapRef.current = [];
     }
+    lastSentPromptRef.current = text;
 
-    const messageText = text || 'Please extract the quiz questions from this image and convert them to a quiz. IMPORTANT: Copy the text EXACTLY as written - do not paraphrase. Any mathematical expressions must use LaTeX format with $...$ delimiters. If any questions have images/diagrams/figures, call markQuestionsWithImages first, then createQuizFromText.';
+    const messageText = text || 'Please extract the quiz questions from these screenshots and create a quiz.';
 
     if (files.length > 0) {
       sendMessage({ text: messageText, files });
@@ -310,7 +263,7 @@ Do NOT try to extract or recreate the images. Just accurately note which questio
         style: 'destructive',
         onPress: () => {
           setMessages([]);
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         },
       },
     ]);
@@ -324,7 +277,7 @@ Do NOT try to extract or recreate the images. Just accurately note which questio
 
   const getToolStatusText = useCallback((toolName: string) => {
     switch (toolName) {
-      case 'markQuestionsWithImages': return 'Identifying images in questions...';
+      case 'extractQuizFromImages': return 'Extracting quiz from screenshots...';
       case 'createQuizFromText': return 'Creating quiz...';
       default: return `Running ${toolName}...`;
     }
@@ -432,7 +385,7 @@ Do NOT try to extract or recreate the images. Just accurately note which questio
           style={styles.suggestionChip}
           onPress={() => {
             setInput('Extract questions from this image and create a quiz');
-            pickImage('library');
+            void pickImage('library');
           }}
           activeOpacity={0.7}
         >
@@ -443,7 +396,7 @@ Do NOT try to extract or recreate the images. Just accurately note which questio
           style={styles.suggestionChip}
           onPress={() => {
             setInput('Take a photo of my quiz and create questions from it');
-            pickImage('camera');
+            void pickImage('camera');
           }}
           activeOpacity={0.7}
         >
